@@ -1,0 +1,20 @@
+# Requires input file in /bin directory
+val tf=sc.textFile("part-00009")
+
+val tf2=tf.map{line=>
+(",[A-Z]{3},".r findAllIn line).mkString(",").substring(1,4)}
+
+val counts=tf2.map(line => (line, 1) )
+
+val unsortedRate = counts.reduceByKey((a, b) => a + b)
+
+val swapped = unsortedRate.map{case(a,b)=>(b,a)}
+
+val invSortedRate = swapped.sortByKey(false)
+
+val bckswpt = invSortedRate.map{case(a,b)=>(b,a)}
+
+
+# Since it is manual processing, no need to look for top 10 positions
+# First X countries would be enough I believe
+bckswpt.take(10).foreach(println)

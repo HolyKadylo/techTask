@@ -1,0 +1,254 @@
+package com.kadylo.app;
+
+import java.io.Serializable;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.function.*;
+import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.SparkConf;
+import java.util.Iterator;
+import java.util.ListIterator;
+import java.util.*;
+import java.util.HashMap;
+import scala.Tuple2;
+import java.util.List;
+import java.util.ArrayList;
+import  java.util.regex.*;
+import java.lang.String;
+import java.util.Collections;
+//import com.google.common.collect;
+import java.lang.StringBuilder;
+import org.json.*;
+
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+// http://stackoverflow.com/questions/36364872/creating-a-topic-for-apache-kafka-0-9-using-java?noredirect=1&lq=1
+// in order to start Kafka with Java
+// import org.I0Itec.zkclient.ZkClient;
+// import org.I0Itec.zkclient.ZkConnection;
+
+import kafka.admin.AdminUtils;
+import kafka.utils.ZKStringSerializer$;
+import kafka.utils.ZkUtils;
+
+// import org.apache.zookeeper.server.quorum.QuorumPeerConfig;
+// import org.apache.zookeeper.server.ZooKeeperServer;
+// import org.apache.zookeeper.server.ZooKeeperServerMain;
+// import org.apache.zookeeper.server.ServerConfig;
+
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
+//import org.apache.kafka;
+
+/**
+ * author Illya Piven
+ *
+ */
+
+public class App implements Serializable
+{
+private static final int TOP_RANGE = 10;
+private static int counter = 0;
+private static Integer prevValue = null;
+//private static transient KafkaProducer<String, String> producer;
+//private static ZooKeeperServerMain zooKeeperServer;
+
+    public static void main( String[] args )
+    {   
+        
+        
+        System.out.println( "----->Finding basedir" );
+        String basedir = System.getProperty("user.dir");
+        System.out.println( "----->basedir: " + basedir);  
+        
+        /*System.out.println( "----->Building listener Spark context..." );
+        SparkConf conf = new SparkConf().setAppName("This is listener").setMaster("local");
+        JavaSparkContext sc = new JavaSparkContext(conf);
+        System.out.println( "----->Done" ); */
+    
+        System.out.println( "----->Building sender Spark context..." );
+        SparkConf conf = new SparkConf().setAppName("Calculator").setMaster("spark://appliance:7077").set("spark.driver.allowMultipleContexts","true");
+        JavaSparkContext sc = new JavaSparkContext(conf);
+        
+        System.out.println( "----->Done" );
+        System.out.println( "----->Loading a file to memory..." );
+        // List<Integer> data = Arrays.asList(1, 2, 3, 4, 5);
+        // JavaRDD<Integer> distData = sc.parallelize(data);
+        //List<Tuple2<Short,String>> map = new ArrayList<Tuple2<Short, String>>();
+        //JavaPairRDD<Short, String> distData = sc.parallelizePairs(map);
+        String basePath = "";
+        try{
+            basePath = App.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath();
+            basePath = basePath.substring(0,basePath.lastIndexOf('/'));
+        } catch (Exception e){
+            e.printStackTrace();
+        }
+       
+        JavaRDD<String> distFile = sc.textFile(basePath + "/extra-resources/part-00009");
+        System.out.println( "----->Done" );   
+        System.out.println( "----->Finding countries" );
+        JavaRDD<String> countriesRDD = distFile.map(
+            new Function<String, String>() {
+                public String call(String line) throws Exception {
+                    
+                    Pattern pattern = Pattern.compile("(?<=\\,)[A-Z]{3}(?=\\,)");
+                    Matcher matcher = pattern.matcher(line);
+                    while (matcher.find()){
+                        return matcher.group();
+                    }
+                    return null;
+                }
+            }
+        );
+        System.out.println( "----->Done" );
+        System.out.println( "----->Calculating countries" );
+        JavaPairRDD<String, Integer> counts = countriesRDD.mapToPair(new PairFunction<String, String, Integer>() {
+            @Override
+            public Tuple2<String, Integer> call(String s) {
+                return new Tuple2<String, Integer>(s, Integer.valueOf(1));
+            }
+        });
+        System.out.println( "----->Still working" );
+        System.out.println( "----->Now sorting" );
+        
+        System.out.println( "----->Reducing" );
+        JavaPairRDD<String, Integer> unsortedRate = counts.reduceByKey(new Function2<Integer, Integer, Integer>() {
+         public Integer call(Integer a, Integer b) { 
+         //System.out.println("----->" + a + " " + b);
+         return a + b; }
+         });
+         
+         //swapping
+         //https://issues.apache.org/jira/browse/SPARK-3655
+         System.out.println( "----->Swapping" );
+         JavaPairRDD<Integer, String> swapped = unsortedRate.mapToPair(new PairFunction<Tuple2<String, Integer>, Integer, String>() {
+           @Override
+           public Tuple2<Integer, String> call(Tuple2<String, Integer> item) throws Exception {
+               return item.swap();
+           }
+
+        });
+         
+         // sorting!
+         System.out.println( "----->Sorting by key" );
+         JavaPairRDD<Integer, String> invSortedRate = swapped.sortByKey(false);
+         
+         //backswapping
+         System.out.println( "----->Backswapping" );
+         JavaPairRDD<String, Integer> sortedRate = invSortedRate.mapToPair(new PairFunction<Tuple2<Integer, String>, String, Integer>() {
+           @Override
+           public Tuple2<String, Integer> call(Tuple2<Integer, String> item) throws Exception {
+               return item.swap();
+           }
+
+        });
+         
+        
+        //map
+        // JavaPairRDD<String, Long> unsortedRate = counts.countByKey();
+        // List<String> keys = new ArrayList(unsortedRate.keySet());
+        // List<Long> values = new ArrayList(unsortedRate.values());
+        // Collections.sort(values);
+        /*List<Map.Entry<String, Long>> sortedRate = new LinkedList<Map.Entry<String, Long>>(unsortedRate.entrySet());
+        Collections.sort(sortedRate, new Comparator<Map.Entry<String, Long>>() {
+            public int compare(Map.Entry<String, Long> o1, Map.Entry<String, Long> o2) {
+            
+            return o2.getValue().compareTo(o1.getValue());
+            }
+        });*/
+        // now values are sorted
+        
+        System.out.println( "----->Done sorting" );
+        //*
+        System.out.println( "----->Loading sender.properties" );
+        final Properties props = new Properties();
+        try{
+        String propsPath = App.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath();
+        propsPath = propsPath.substring(0, propsPath.lastIndexOf('/'));
+        InputStream is = null;
+        is = new FileInputStream(propsPath + "/extra-resources/sender.properties");
+        props.load(is);  
+        System.out.println( "----->Loaded" );
+        } catch (Exception e){
+            System.out.println( "----->Failed: " + e.toString());
+            System.exit(-1); 
+        }
+        
+       
+//producer from in here       
+       
+        // building answer
+        
+        // StringBuilder sb = new StringBuilder();
+        
+        //for (Map.Entry<String, Long> w : sortedRate) {
+        System.out.println("----->Building answers");
+        System.out.println("----->" + sortedRate.isEmpty());
+        sortedRate.foreach(new VoidFunction<Tuple2<String, Integer>>() {
+            @Override
+            public void call(Tuple2<String, Integer> sr) throws Exception {
+            
+            KafkaProducer<String, String> producer;
+            System.out.println( "----->Sending messages" );
+            producer = new KafkaProducer(props);
+            System.out.println("----->Producer constructed");
+            
+            System.out.println("----->counter" + counter);
+            System.out.println("----->sr_1" + (String)sr._1());
+            System.out.println("----->sr_2" + sr._2());
+            System.out.println("----->prevValue" + prevValue);
+            //System.out.println("=====>" + sr.isEmpty());
+                //System.out.println(sr);
+           
+        
+        
+        
+       /* sortedRate.foreachPartition(new VoidFunction<Iterator<Tuple2<String, Integer>>>() {
+
+         public void call(Iterator<Tuple2<String, Integer>> it) throws Exception {
+            System.out.println(1);*/
+        
+        
+          if (counter >= TOP_RANGE && !sr._2().equals(prevValue)){
+             producer.close(); 
+             return;
+          }
+          
+          JSONObject answer = new JSONObject();         
+          answer.put((String)sr._1(),(Integer)sr._2());
+          counter++;
+          ProducerRecord<String, String> rec = new ProducerRecord<String, String>("my-topic", String.valueOf(counter), answer.toString());
+          producer.send(rec);
+          System.out.println("----->" + counter + " " + answer.toString());
+          // arrContent.put(content);
+          // sb.append("----->" + w.getKey() + " : " + w.getValue() + System.lineSeparator());
+          
+          
+          if (counter >= (TOP_RANGE - 1)) {
+            prevValue = sr._2();
+            //break;
+          }//*/
+          
+        }});
+        
+        //answer.put("content",arrContent);
+        //System.out.println("----->" + answer.toString());
+        System.out.println( "----->All messages sent" );
+        
+        //https://spark.apache.org/docs/2.0.0/api/java/org/apache/spark/SparkContext.html
+        sc.stop();
+        //Starting consumer
+        new Thread(new Saver()).start();
+        
+        // now we have JSON answer
+
+          
+        
+         // */}
+    
+}
+}
