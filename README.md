@@ -1,6 +1,6 @@
 This is big data tech task by Illya Piven.
 
-Tools that were used here were:
+Here are the tools that were used here:
 
 - Spark 2.0.2
 - Java 1.8.0_111
